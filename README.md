@@ -4,6 +4,9 @@ An interactive 3D visualization and analytical tool built in **Rust** using **Ma
 
 $$I = \int_{-\infty}^{\infty} e^{-x^2} \, dx = \sqrt{\pi}$$
 
+<img width="1504" height="1009" alt="image" src="https://github.com/user-attachments/assets/c3803a01-95a2-4366-b78b-19609c0f418d" />
+
+
 ---
 
 ## Key Features
