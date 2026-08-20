@@ -92,8 +92,29 @@ fn integrate_gaussian_2d(limit: f32, n: usize) -> f32 {
 }
 
 // =========================================================================
-// Colormaps (matching scalar_fields aesthetics)
+// Colormaps & Themes
 // =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Theme {
+    Plasma,
+    Magma,
+    Oceanic,
+    Cyberpunk,
+    Emerald,
+}
+
+impl Theme {
+    fn name(&self) -> &'static str {
+        match self {
+            Theme::Plasma => "Plasma & Spectral",
+            Theme::Magma => "Magma & Fire",
+            Theme::Oceanic => "Deep Oceanic",
+            Theme::Cyberpunk => "Cyberpunk Neon",
+            Theme::Emerald => "Emerald Matrix",
+        }
+    }
+}
 
 fn plasma(t: f32) -> Color {
     let t = t.clamp(0.0, 1.0);
@@ -109,6 +130,52 @@ fn plasma(t: f32) -> Color {
     } else {
         let f = (t - 0.75) / 0.25;
         Color::new(0.90 + f * 0.08, 0.38 + f * 0.52, 0.30 - f * 0.18, 1.0)
+    }
+}
+
+fn sample_colormap(t: f32, theme: Theme) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    match theme {
+        Theme::Plasma => plasma(t),
+        Theme::Magma => {
+            if t < 0.33 {
+                let f = t / 0.33;
+                Color::new(0.05 + f * 0.4, 0.02, 0.15 + f * 0.1, 1.0)
+            } else if t < 0.66 {
+                let f = (t - 0.33) / 0.33;
+                Color::new(0.45 + f * 0.45, 0.02 + f * 0.35, 0.25 - f * 0.25, 1.0)
+            } else {
+                let f = (t - 0.66) / 0.34;
+                Color::new(0.90 + f * 0.09, 0.37 + f * 0.55, 0.0 + f * 0.6, 1.0)
+            }
+        }
+        Theme::Oceanic => {
+            if t < 0.5 {
+                let f = t / 0.5;
+                Color::new(0.02 + f * 0.1, 0.1 + f * 0.4, 0.3 + f * 0.5, 1.0)
+            } else {
+                let f = (t - 0.5) / 0.5;
+                Color::new(0.12 + f * 0.6, 0.5 + f * 0.4, 0.8 + f * 0.15, 1.0)
+            }
+        }
+        Theme::Cyberpunk => {
+            if t < 0.5 {
+                let f = t / 0.5;
+                Color::new(0.3 + f * 0.6, 0.02 + f * 0.1, 0.5 + f * 0.4, 1.0)
+            } else {
+                let f = (t - 0.5) / 0.5;
+                Color::new(0.9 - f * 0.7, 0.12 + f * 0.8, 0.9, 1.0)
+            }
+        }
+        Theme::Emerald => {
+            if t < 0.5 {
+                let f = t / 0.5;
+                Color::new(0.02, 0.15 + f * 0.45, 0.1 + f * 0.2, 1.0)
+            } else {
+                let f = (t - 0.5) / 0.5;
+                Color::new(0.02 + f * 0.8, 0.6 + f * 0.35, 0.3 + f * 0.5, 1.0)
+            }
+        }
     }
 }
 
@@ -142,8 +209,10 @@ async fn main() {
     let mut integration_limit = 5.0_f32;
     let mut integration_n: usize = 200;
 
-    // Derivation step expander state
-    let mut show_derivation = true;
+    let mut selected_theme = Theme::Plasma;
+    let mut dark_mode = true;
+    let mut auto_rotate = true;
+    let mut show_derivation = false;
 
     let light_dir = vec3(1.0, 1.0, 2.0).normalize();
 
@@ -151,6 +220,11 @@ async fn main() {
         let sw = screen_width();
         let sh = screen_height();
         let mouse = vec2(mouse_position().0, mouse_position().1);
+
+        // Auto-rotation when not dragging
+        if auto_rotate && !is_mouse_button_down(MouseButton::Left) {
+            cam.yaw += get_frame_time() * 0.2;
+        }
 
         // Camera controls (orbit + zoom) when egui doesn't capture
         if is_mouse_button_down(MouseButton::Left) && !egui_captured {
@@ -194,15 +268,24 @@ async fn main() {
         // =====================================================================
         // Render
         // =====================================================================
-        clear_background(Color::new(0.03, 0.04, 0.06, 1.0));
+        let bg_color = if dark_mode {
+            Color::new(0.03, 0.04, 0.06, 1.0)
+        } else {
+            Color::new(0.94, 0.93, 0.89, 1.0)
+        };
+        clear_background(bg_color);
 
         // Ground grid
         let gz = -0.15;
         let gs = domain;
+        let gc = if dark_mode {
+            Color::new(0.18, 0.20, 0.26, 0.12)
+        } else {
+            Color::new(0.45, 0.45, 0.50, 0.25)
+        };
         for k in 0..=10 {
             let f = (k as f32 / 10.0) * 2.0 - 1.0;
             let c = f * gs;
-            let gc = Color::new(0.18, 0.20, 0.26, 0.12);
             draw_3d_line(vec3(-gs, c, gz), vec3(gs, c, gz), 1.0, gc, vp, 0.0, 0.0, sw, sh);
             draw_3d_line(vec3(c, -gs, gz), vec3(c, gs, gz), 1.0, gc, vp, 0.0, 0.0, sw, sh);
         }
@@ -225,7 +308,7 @@ async fn main() {
                 project(face.v3, vp, 0.0, 0.0, sw, sh),
             ) {
                 let t_val = face.height.clamp(0.0, 1.0);
-                let base = plasma(t_val);
+                let base = sample_colormap(t_val, selected_theme);
 
                 let normal = (face.v1 - face.v0).cross(face.v3 - face.v0).normalize();
                 let lf = 0.35 + 0.65 * normal.dot(light_dir).abs();
@@ -273,13 +356,15 @@ async fn main() {
         }
 
         // Peak label
-        draw_3d_text("e^(-(x²+y²))", vec3(0.15, 0.15, 1.08), WHITE, 18.0, vp, 0.0, 0.0, sw, sh);
+        let text_col = if dark_mode { WHITE } else { Color::new(0.15, 0.15, 0.20, 1.0) };
+        let sub_col = if dark_mode { Color::new(0.5, 0.55, 0.65, 0.7) } else { Color::new(0.35, 0.40, 0.50, 0.85) };
+        draw_3d_text("e^(-(x²+y²))", vec3(0.15, 0.15, 1.08), text_col, 18.0, vp, 0.0, 0.0, sw, sh);
 
         // Title overlay
-        draw_text("Gaussian Integral Visualization", 20.0, 30.0, 20.0, WHITE);
+        draw_text("Gaussian Integral Visualization", 20.0, 30.0, 20.0, text_col);
         draw_text(
             "Drag to rotate · Scroll to zoom",
-            20.0, sh - 16.0, 13.0, Color::new(0.5, 0.55, 0.65, 0.7),
+            20.0, sh - 16.0, 13.0, sub_col,
         );
 
         // =====================================================================
@@ -291,6 +376,7 @@ async fn main() {
         let sqrt_pi = pi_val.sqrt();
 
         egui_macroquad::ui(|ctx| {
+            ctx.set_visuals(if dark_mode { egui::Visuals::dark() } else { egui::Visuals::light() });
             egui::Window::new("Gaussian Integral")
                 .default_width(360.0)
                 .show(ctx, |ui| {
@@ -379,7 +465,28 @@ async fn main() {
                         ui.separator();
 
                         // ── Visualization controls ──
-                        ui.heading("Visualization");
+                        ui.heading("Visualization & Camera");
+
+                        ui.horizontal(|ui| {
+                            ui.label("Color Palette:");
+                            egui::ComboBox::from_id_salt("theme_selector")
+                                .selected_text(selected_theme.name())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut selected_theme, Theme::Plasma, Theme::Plasma.name());
+                                    ui.selectable_value(&mut selected_theme, Theme::Magma, Theme::Magma.name());
+                                    ui.selectable_value(&mut selected_theme, Theme::Oceanic, Theme::Oceanic.name());
+                                    ui.selectable_value(&mut selected_theme, Theme::Cyberpunk, Theme::Cyberpunk.name());
+                                    ui.selectable_value(&mut selected_theme, Theme::Emerald, Theme::Emerald.name());
+                                });
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Theme:");
+                            ui.selectable_value(&mut dark_mode, false, "Light Poster");
+                            ui.selectable_value(&mut dark_mode, true, "Dark Glass");
+                        });
+
+                        ui.checkbox(&mut auto_rotate, "Auto-rotate camera");
                         ui.add(egui::Slider::new(&mut grid_res, 15..=80).text("Surface resolution"));
                         ui.add(egui::Slider::new(&mut domain, 1.5..=5.0).text("Domain extent"));
                         ui.add(egui::Slider::new(&mut opacity, 0.2..=1.0).text("Surface opacity"));
